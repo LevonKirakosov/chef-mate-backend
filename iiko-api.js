@@ -2,6 +2,7 @@
  * Файл: iiko-api.js
  * Описание: Модуль для взаимодействия с API IIKO.
  * Управляет аутентификацией, получением номенклатуры, остатков и рецептов.
+ * ФИНАЛЬНАЯ ВЕРСИЯ: Добавлен обязательный шаг получения терминальных групп.
  */
 
 const axios = require('axios');
@@ -12,6 +13,7 @@ const API_BASE_URL = 'https://api-ru.iiko.services/api/1';
 
 let authToken = null;
 let organizationId = null;
+let terminalGroupId = null; // Переменная для хранения ID терминальной группы
 let nomenclature = null;
 
 if (!IIKO_API_LOGIN) {
@@ -21,7 +23,7 @@ if (!IIKO_API_LOGIN) {
 // --- 2. Аутентификация и инициализация ---
 
 /**
- * Получает токен доступа к API IIKO.
+ * Шаг 1: Получает токен доступа к API IIKO.
  */
 async function getAuthToken() {
     try {
@@ -30,13 +32,13 @@ async function getAuthToken() {
         authToken = response.data.token;
     } catch (error) {
         const errorMessage = error.response ? JSON.stringify(error.response.data) : error.message;
-        console.error("Ошибка при получении токена IIKO:", errorMessage);
+        console.error("Ошибка на Шаге 1 (Получение токена):", errorMessage);
         throw new Error(`Не удалось получить токен IIKO: ${errorMessage}`);
     }
 }
 
 /**
- * Получает список организаций и сохраняет ID первой.
+ * Шаг 2: Получает список организаций и сохраняет ID первой.
  */
 async function getOrganizations() {
     if (!authToken) throw new Error("Нет токена для запроса организаций.");
@@ -52,18 +54,45 @@ async function getOrganizations() {
         }
     } catch (error) {
         const errorMessage = error.response ? JSON.stringify(error.response.data) : error.message;
-        console.error("Ошибка при получении организаций:", errorMessage);
+        console.error("Ошибка на Шаге 2 (Получение организаций):", errorMessage);
         throw new Error(`Не удалось получить организации: ${errorMessage}`);
     }
 }
 
 /**
+ * Шаг 3: Получает список терминальных групп для организации.
+ */
+async function getTerminalGroups() {
+    if (!authToken || !organizationId) throw new Error("Нет токена или ID организации для запроса терминальных групп.");
+    try {
+        const response = await axios.post(`${API_BASE_URL}/terminal_groups`, 
+            { organizationIds: [organizationId] }, 
+            { headers: { 'Authorization': `Bearer ${authToken}` } }
+        );
+        // Проверяем, что терминальные группы существуют и не являются пустым массивом
+        if (response.data.terminalGroups && response.data.terminalGroups.length > 0) {
+            // Берем первую терминальную группу. В будущем можно будет выбирать.
+            terminalGroupId = response.data.terminalGroups[0].items[0].id;
+            console.log(`Получен ID терминальной группы: ${terminalGroupId}`);
+        } else {
+            throw new Error("Список терминальных групп пуст.");
+        }
+    } catch (error) {
+        const errorMessage = error.response ? JSON.stringify(error.response.data) : error.message;
+        console.error("Ошибка на Шаге 3 (Получение терминальных групп):", errorMessage);
+        throw new Error(`Не удалось получить терминальные группы: ${errorMessage}`);
+    }
+}
+
+
+/**
  * Инициализирует модуль, выполняя всю цепочку запросов.
  */
 async function initialize() {
-    await getAuthToken(); // 1. Получаем токен
-    await getOrganizations(); // 2. Получаем организации
-    await refreshNomenclature(); // 3. Получаем номенклатуру
+    await getAuthToken();           // 1. Получаем токен
+    await getOrganizations();       // 2. Получаем организации
+    await getTerminalGroups();      // 3. ПОЛУЧАЕМ ТЕРМИНАЛЬНЫЕ ГРУППЫ
+    await refreshNomenclature();    // 4. Получаем номенклатуру
 
     // Настраиваем периодическое обновление токена
     setInterval(getAuthToken, 55 * 60 * 1000);
@@ -72,7 +101,7 @@ async function initialize() {
 // --- 3. Функции для работы с данными ---
 
 /**
- * Обновляет кэш номенклатуры (товары, блюда, заготовки).
+ * Шаг 4: Обновляет кэш номенклатуры.
  */
 async function refreshNomenclature() {
     if (!authToken || !organizationId) {
@@ -80,7 +109,6 @@ async function refreshNomenclature() {
         return;
     }
     try {
-        // ИСПРАВЛЕНО: Запрос теперь включает ID организации
         const response = await axios.post(`${API_BASE_URL}/nomenclature`, 
             { organizationId: organizationId },
             { headers: { 'Authorization': `Bearer ${authToken}` } }
@@ -134,7 +162,7 @@ async function getStockReport() {
     if (!authToken || !organizationId) return "Ошибка: нет токена или ID организации.";
     try {
         const response = await axios.post(`${API_BASE_URL}/reports/rest_stops`, 
-            { organizationIds: [organizationId] }, // API требует массив ID
+            { organizationIds: [organizationId] }, 
             { headers: { 'Authorization': `Bearer ${authToken}` } }
         );
         
