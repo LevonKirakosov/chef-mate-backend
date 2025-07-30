@@ -11,8 +11,8 @@ const IIKO_API_LOGIN = process.env.IIKO_API_LOGIN;
 const API_BASE_URL = 'https://api-ru.iiko.services/api/1';
 
 let authToken = null;
-let organizationId = null; 
-let nomenclature = null; 
+let organizationId = null;
+let nomenclature = null;
 
 if (!IIKO_API_LOGIN) {
     console.error("КРИТИЧЕСКАЯ ОШИБКА: Переменная окружения IIKO_API_LOGIN должна быть установлена!");
@@ -45,7 +45,6 @@ async function getOrganizations() {
             headers: { 'Authorization': `Bearer ${authToken}` }
         });
         if (response.data.organizations && response.data.organizations.length > 0) {
-            // Используем первую организацию из списка
             organizationId = response.data.organizations[0].id;
             console.log(`Получен ID организации: ${organizationId}`);
         } else {
@@ -58,9 +57,8 @@ async function getOrganizations() {
     }
 }
 
-
 /**
- * Инициализирует модуль: получает токен, ID организации и номенклатуру.
+ * Инициализирует модуль, выполняя всю цепочку запросов.
  */
 async function initialize() {
     await getAuthToken(); // 1. Получаем токен
@@ -75,7 +73,6 @@ async function initialize() {
 
 /**
  * Обновляет кэш номенклатуры (товары, блюда, заготовки).
- * ИСПРАВЛЕНО: Теперь запрашивается с ID организации.
  */
 async function refreshNomenclature() {
     if (!authToken || !organizationId) {
@@ -83,12 +80,12 @@ async function refreshNomenclature() {
         return;
     }
     try {
+        // ИСПРАВЛЕНО: Запрос теперь включает ID организации
         const response = await axios.post(`${API_BASE_URL}/nomenclature`, 
             { organizationId: organizationId },
             { headers: { 'Authorization': `Bearer ${authToken}` } }
         );
         nomenclature = response.data;
-        // Добавлена проверка на наличие данных перед чтением
         const productsCount = nomenclature.products ? nomenclature.products.length : 0;
         const dishesCount = nomenclature.dishes ? nomenclature.dishes.length : 0;
         console.log(`Номенклатура успешно загружена: ${productsCount} продуктов, ${dishesCount} блюд.`);
