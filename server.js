@@ -1,7 +1,6 @@
 /*
  * Файл: server.js
- * Описание: Финальная, исправленная версия. Удалена автоматическая установка webhook,
- * так как он уже был установлен вручную. Добавлена полная логика бота.
+ * Описание: Версия для отладки v2. Добавлены расширенные логи для команды /menu.
  */
 
 // --- 1. Подключение необходимых библиотек ---
@@ -23,10 +22,8 @@ if (!token) {
 }
 console.log(">>> [INFO] Токен успешно загружен.");
 
-// Инициализируем бота в режиме без опроса (polling: false), так как мы используем webhook.
 const bot = new TelegramBot(token, { polling: false });
 
-// Путь, который слушает наш сервер. Он должен совпадать с тем, что мы установили вручную.
 const webhookPath = `/telegram/webhook/${token}`;
 console.log(`>>> [INFO] Сервер готов принимать сообщения по пути: ${webhookPath}`);
 
@@ -60,17 +57,25 @@ const menuData = {
     ]}
 };
 const dayNames = { monday: 'Понедельник', tuesday: 'Вторник', wednesday: 'Среда', thursday: 'Четверг', friday: 'Пятница' };
-const KITCHEN_CHAT_ID = '-1002389108118'; // ID вашего группового чата
+const KITCHEN_CHAT_ID = '-1002389108118'; 
+console.log(`>>> [INFO] ID чата для уведомлений: ${KITCHEN_CHAT_ID}`);
+
 
 // --- 4. Логика обработки сообщений от Telegram ---
 
 app.post(webhookPath, (req, res) => {
+  console.log(">>> [WEBHOOK] Получено новое сообщение от Telegram.");
   bot.processUpdate(req.body);
   res.sendStatus(200);
 });
 
+bot.on('message', (msg) => {
+    console.log(`>>> [MESSAGE] Получено сообщение в чате ${msg.chat.id}: "${msg.text}" от пользователя ${msg.from.username}`);
+});
+
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
+  console.log(`>>> [COMMAND] Пользователь ${msg.from.username} (${chatId}) выполнил команду /start`);
   const userName = msg.from.first_name || 'Повар';
   const welcomeMessage = `Добро пожаловать, ${userName}! Я ваш цифровой су-шеф "Chef-Mate".\n\nЯ готов помогать вам управлять кухней. Вот что я умею:\n- **/menu [день]**: Показать меню (например, /menu понедельник).\n- **/recipe [название]**: Показать рецепт (например, /recipe харчо).\n\nВсе важные уведомления будут приходить в чат кухни.`;
   bot.sendMessage(chatId, welcomeMessage);
@@ -79,9 +84,13 @@ bot.onText(/\/start/, (msg) => {
 bot.onText(/\/menu (.+)/, (msg, match) => {
     const chatId = msg.chat.id;
     const dayQuery = match[1].toLowerCase();
+    console.log(`>>> [COMMAND /menu] Получен запрос на день: "${dayQuery}"`);
+    
     let dayKey = Object.keys(dayNames).find(key => dayNames[key].toLowerCase().startsWith(dayQuery));
+    console.log(`>>> [COMMAND /menu] Найден ключ дня: ${dayKey}`);
 
     if (dayKey && menuData[dayKey]) {
+        console.log(`>>> [COMMAND /menu] Найдены данные для дня: ${dayKey}. Отправляю ответ.`);
         const dayMenu = menuData[dayKey];
         let response = `*Меню на ${dayNames[dayKey]} (${dayMenu.name}):*\n\n`;
         dayMenu.dishes.forEach(dish => {
@@ -89,6 +98,7 @@ bot.onText(/\/menu (.+)/, (msg, match) => {
         });
         bot.sendMessage(chatId, response, { parse_mode: 'Markdown' });
     } else {
+        console.log(`>>> [COMMAND /menu] Данные для дня "${dayQuery}" не найдены. Отправляю сообщение об ошибке.`);
         bot.sendMessage(chatId, "Пожалуйста, укажите день недели (например, /menu понедельник).");
     }
 });
@@ -96,6 +106,7 @@ bot.onText(/\/menu (.+)/, (msg, match) => {
 bot.onText(/\/recipe (.+)/, (msg, match) => {
     const chatId = msg.chat.id;
     const query = match[1].toLowerCase();
+    console.log(`>>> [COMMAND /recipe] Получен запрос на рецепт: "${query}"`);
     let foundDish = null;
 
     for (const day in menuData) {
@@ -107,9 +118,11 @@ bot.onText(/\/recipe (.+)/, (msg, match) => {
     }
 
     if (foundDish) {
+        console.log(`>>> [COMMAND /recipe] Найден рецепт для "${query}". Отправляю ответ.`);
         const response = `*Краткая технология "${foundDish.name}":*\n\n${foundDish.cooking_process}`;
         bot.sendMessage(chatId, response, { parse_mode: 'Markdown' });
     } else {
+        console.log(`>>> [COMMAND /recipe] Рецепт для "${query}" не найден. Отправляю сообщение об ошибке.`);
         bot.sendMessage(chatId, `Рецепт для "${query}" не найден. Пожалуйста, проверьте название.`);
     }
 });
@@ -119,6 +132,7 @@ bot.on('callback_query', (callbackQuery) => {
     const data = callbackQuery.data;
     const chatId = msg.chat.id;
     const user = callbackQuery.from.first_name;
+    console.log(`>>> [CALLBACK] Получено нажатие на кнопку "${data}" от пользователя ${user}`);
 
     if (data === 'line_check_confirm') {
         bot.editMessageText(`*Утренний Лайн-чек (09:00)*\n\nСтанция готова к работе. ✅\n_Подтвердил(а): ${user} в ${new Date().toLocaleTimeString()}_`, {
@@ -132,6 +146,7 @@ bot.on('callback_query', (callbackQuery) => {
 
 // --- 5. Проактивные уведомления (Планировщик) ---
 cron.schedule('0 6 * * 1-5', () => {
+    console.log(">>> [CRON] Сработал планировщик: Утренний Лайн-чек (09:00 МСК)");
     const message = `*Утренний Лайн-чек (09:00)*\n\nДоброе утро, команда! Пора начинать проверку станции. Ответственный, пожалуйста, подтвердите готовность.`;
     const options = {
         reply_markup: {
@@ -147,6 +162,7 @@ cron.schedule('0 6 * * 1-5', () => {
 });
 
 cron.schedule('0 12 * * 1-5', () => {
+    console.log(">>> [CRON] Сработал планировщик: Контроль HACCP (15:00 МСК)");
     const message = `*Контроль HACCP (15:00)*\n\nНапоминание: Время замерить температуру в холодильнике №2 (мясной). Внесите значение в журнал.`;
     bot.sendMessage(KITCHEN_CHAT_ID, message, { parse_mode: 'Markdown' });
 }, {
