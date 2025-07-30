@@ -129,4 +129,4 @@ console.log("Планировщик уведомлений запущен.");
 // --- 6. Запуск сервера ---
 const listener = app.listen(process.env.PORT || 3000, () => {
   console.log("Сервер v2.0 (IIKO) запущен и слушает порт " + listener.address().port);
-})
+}
