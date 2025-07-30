@@ -2,7 +2,7 @@
  * Файл: iiko-api.js
  * Описание: Модуль для взаимодействия с API IIKO.
  * Управляет аутентификацией, получением номенклатуры, остатков и рецептов.
- * ФИНАЛЬНАЯ ВЕРСИЯ: Добавлен обязательный шаг получения терминальных групп.
+ * ФИНАЛЬНАЯ ВЕРСИЯ: Добавлен обязательный шаг получения терминальных групп и его ИСПОЛЬЗОВАНИЕ.
  */
 
 const axios = require('axios');
@@ -65,17 +65,20 @@ async function getOrganizations() {
 async function getTerminalGroups() {
     if (!authToken || !organizationId) throw new Error("Нет токена или ID организации для запроса терминальных групп.");
     try {
-        const response = await axios.post(`${API_BASE_URL}/terminal_groups`, 
-            { organizationIds: [organizationId] }, 
+        const response = await axios.post(`${API_BASE_URL}/terminal_groups`,
+            {
+                organizationIds: [organizationId],
+                includeDisabled: false // Не включать отключенные
+            },
             { headers: { 'Authorization': `Bearer ${authToken}` } }
         );
-        // Проверяем, что терминальные группы существуют и не являются пустым массивом
-        if (response.data.terminalGroups && response.data.terminalGroups.length > 0) {
-            // Берем первую терминальную группу. В будущем можно будет выбирать.
+
+        if (response.data.terminalGroups && response.data.terminalGroups.length > 0 && response.data.terminalGroups[0].items.length > 0) {
+            // Берем первую активную терминальную группу.
             terminalGroupId = response.data.terminalGroups[0].items[0].id;
             console.log(`Получен ID терминальной группы: ${terminalGroupId}`);
         } else {
-            throw new Error("Список терминальных групп пуст.");
+            throw new Error("Список терминальных групп пуст или не содержит активных терминалов.");
         }
     } catch (error) {
         const errorMessage = error.response ? JSON.stringify(error.response.data) : error.message;
@@ -102,15 +105,19 @@ async function initialize() {
 
 /**
  * Шаг 4: Обновляет кэш номенклатуры.
+ * ИСПРАВЛЕНО: Теперь используется ID терминальной группы для получения меню.
  */
 async function refreshNomenclature() {
-    if (!authToken || !organizationId) {
-        console.error("Пропуск обновления номенклатуры: отсутствует токен или ID организации.");
+    if (!authToken || !organizationId || !terminalGroupId) {
+        console.error("Пропуск обновления номенклатуры: отсутствует токен, ID организации или ID терминальной группы.");
         return;
     }
     try {
-        const response = await axios.post(`${API_BASE_URL}/nomenclature`, 
-            { organizationId: organizationId },
+        const response = await axios.post(`${API_BASE_URL}/nomenclature`,
+            {
+                organizationId: organizationId,
+                terminalGroupId: terminalGroupId // ЯВНО УКАЗЫВАЕМ ID ТЕРМИНАЛЬНОЙ ГРУППЫ
+            },
             { headers: { 'Authorization': `Bearer ${authToken}` } }
         );
         nomenclature = response.data;
@@ -137,7 +144,7 @@ function findDish(query) {
  */
 function getRecipe(dishId) {
     if (!nomenclature || !nomenclature.products || !nomenclature.dishes) return "Номенклатура еще не загружена.";
-    
+
     const dish = nomenclature.dishes.find(d => d.id === dishId);
     if (!dish || !dish.assemblyCharts || dish.assemblyCharts.length === 0) {
         return "Технологическая карта для этого блюда не найдена.";
@@ -161,11 +168,11 @@ function getRecipe(dishId) {
 async function getStockReport() {
     if (!authToken || !organizationId) return "Ошибка: нет токена или ID организации.";
     try {
-        const response = await axios.post(`${API_BASE_URL}/reports/rest_stops`, 
-            { organizationIds: [organizationId] }, 
+        const response = await axios.post(`${API_BASE_URL}/reports/rest_stops`,
+            { organizationIds: [organizationId] },
             { headers: { 'Authorization': `Bearer ${authToken}` } }
         );
-        
+
         const items = response.data.data;
         if (!items || items.length === 0) {
             return "Остатки не найдены или склады пусты.";
