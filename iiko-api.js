@@ -11,8 +11,8 @@ const IIKO_API_LOGIN = process.env.IIKO_API_LOGIN;
 const API_BASE_URL = 'https://api-ru.iiko.services/api/1';
 
 let authToken = null;
-let organizationId = null; // Будем хранить ID организации
-let nomenclature = null; // Кэш номенклатуры
+let organizationId = null; 
+let nomenclature = null; 
 
 if (!IIKO_API_LOGIN) {
     console.error("КРИТИЧЕСКАЯ ОШИБКА: Переменная окружения IIKO_API_LOGIN должна быть установлена!");
@@ -45,6 +45,7 @@ async function getOrganizations() {
             headers: { 'Authorization': `Bearer ${authToken}` }
         });
         if (response.data.organizations && response.data.organizations.length > 0) {
+            // Используем первую организацию из списка
             organizationId = response.data.organizations[0].id;
             console.log(`Получен ID организации: ${organizationId}`);
         } else {
@@ -87,7 +88,10 @@ async function refreshNomenclature() {
             { headers: { 'Authorization': `Bearer ${authToken}` } }
         );
         nomenclature = response.data;
-        console.log(`Номенклатура успешно загружена: ${nomenclature.products.length} продуктов, ${nomenclature.dishes.length} блюд.`);
+        // Добавлена проверка на наличие данных перед чтением
+        const productsCount = nomenclature.products ? nomenclature.products.length : 0;
+        const dishesCount = nomenclature.dishes ? nomenclature.dishes.length : 0;
+        console.log(`Номенклатура успешно загружена: ${productsCount} продуктов, ${dishesCount} блюд.`);
     } catch (error) {
         const errorMessage = error.response ? JSON.stringify(error.response.data) : error.message;
         console.error("Ошибка при загрузке номенклатуры:", errorMessage);
@@ -107,7 +111,7 @@ function findDish(query) {
  * Получает технологическую карту (рецепт) для блюда.
  */
 function getRecipe(dishId) {
-    if (!nomenclature || !nomenclature.products) return "Номенклатура еще не загружена.";
+    if (!nomenclature || !nomenclature.products || !nomenclature.dishes) return "Номенклатура еще не загружена.";
     
     const dish = nomenclature.dishes.find(d => d.id === dishId);
     if (!dish || !dish.assemblyCharts || dish.assemblyCharts.length === 0) {
