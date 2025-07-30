@@ -1,7 +1,179 @@
+{
+  "name": "chef-mate-backend",
+  "version": "2.0.0",
+  "description": "Backend server for the Chef-Mate kitchen management system with IIKO integration.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.17.1",
+    "body-parser": "^1.19.0",
+    "node-telegram-bot-api": "^0.61.0",
+    "node-cron": "^3.0.2",
+    "axios": "^1.6.0"
+  },
+  "engines": {
+    "node": "16.x"
+  }
+}
+```javascript:iiko-api.js
+/*
+ * Файл: iiko-api.js
+ * Описание: Модуль для взаимодействия с API IIKO.
+ * Управляет аутентификацией, получением номенклатуры, остатков и рецептов.
+ */
+
+const axios = require('axios');
+
+// --- 1. Конфигурация ---
+const IIKO_API_LOGIN = process.env.IIKO_API_LOGIN;
+const IIKO_ORGANIZATION_ID = process.env.IIKO_ORGANIZATION_ID;
+const API_BASE_URL = '[https://api-ru.iiko.services/api/1](https://api-ru.iiko.services/api/1)';
+
+let authToken = null;
+let nomenclature = null; // Кэш номенклатуры
+
+if (!IIKO_API_LOGIN || !IIKO_ORGANIZATION_ID) {
+    console.error("КРИТИЧЕСКАЯ ОШИБКА: Переменные окружения IIKO_API_LOGIN и IIKO_ORGANIZATION_ID должны быть установлены!");
+}
+
+// --- 2. Аутентификация ---
+
+/**
+ * Получает токен доступа к API IIKO.
+ * @returns {Promise<string>} Возвращает токен.
+ * @throws {Error} Если не удалось получить токен.
+ */
+async function getAuthToken() {
+    try {
+        const response = await axios.get(`${API_BASE_URL}/access_token`, {
+            params: { user_id: IIKO_API_LOGIN }
+        });
+        console.log("Токен IIKO успешно получен.");
+        authToken = response.data; // Сразу присваиваем токен
+        return authToken;
+    } catch (error) {
+        const errorMessage = error.response ? JSON.stringify(error.response.data) : error.message;
+        console.error("Ошибка при получении токена IIKO:", errorMessage);
+        throw new Error(`Не удалось получить токен IIKO: ${errorMessage}`);
+    }
+}
+
+/**
+ * Инициализирует модуль: получает токен и запускает таймер его обновления.
+ * @throws {Error} Если инициализация не удалась.
+ */
+async function initialize() {
+    await getAuthToken(); // Получаем первый токен
+    
+    // Токен IIKO живет 60 минут, обновляем каждые 55 минут.
+    setInterval(getAuthToken, 55 * 60 * 1000);
+
+    // Также загрузим и закэшируем номенклатуру при старте
+    await refreshNomenclature();
+}
+
+// --- 3. Функции для работы с данными ---
+
+/**
+ * Обновляет кэш номенклатуры (товары, блюда, заготовки).
+ */
+async function refreshNomenclature() {
+    if (!authToken) {
+        console.error("Пропуск обновления номенклатуры: отсутствует токен авторизации.");
+        return;
+    }
+    try {
+        const response = await axios.post(`${API_BASE_URL}/nomenclature`, 
+            { organizationIds: [IIKO_ORGANIZATION_ID] },
+            { headers: { 'Authorization': `Bearer ${authToken}` } }
+        );
+        nomenclature = response.data;
+        console.log(`Номенклатура успешно загружена: ${nomenclature.products.length} продуктов, ${nomenclature.dishes.length} блюд.`);
+    } catch (error) {
+        const errorMessage = error.response ? JSON.stringify(error.response.data) : error.message;
+        console.error("Ошибка при загрузке номенклатуры:", errorMessage);
+    }
+}
+
+/**
+ * Находит блюдо в номенклатуре по части названия.
+ * @param {string} query - Часть названия блюда для поиска.
+ * @returns {object|null} Найденный объект блюда или null.
+ */
+function findDish(query) {
+    if (!nomenclature) return null;
+    const lowerCaseQuery = query.toLowerCase();
+    return nomenclature.dishes.find(d => d.name.toLowerCase().includes(lowerCaseQuery));
+}
+
+/**
+ * Получает технологическую карту (рецепт) для блюда.
+ * @param {string} dishId - ID блюда.
+ * @returns {string} Отформатированная строка с рецептом.
+ */
+function getRecipe(dishId) {
+    if (!nomenclature) return "Номенклатура еще не загружена.";
+    
+    const dish = nomenclature.dishes.find(d => d.id === dishId);
+    if (!dish || !dish.assemblyCharts || dish.assemblyCharts.length === 0) {
+        return "Технологическая карта для этого блюда не найдена.";
+    }
+
+    const chart = dish.assemblyCharts[0];
+    let recipeText = `*Тех. карта для "${dish.name}" (Выход: ${chart.yield} г):*\n\n`;
+
+    chart.items.forEach(item => {
+        const product = nomenclature.products.find(p => p.id === item.productId);
+        const productName = product ? product.name : "Неизвестный продукт";
+        recipeText += `• *${productName}:* ${item.amount} ${product ? product.mainUnit : ''} (нетто)\n`;
+    });
+
+    return recipeText;
+}
+
+/**
+ * Получает остатки на складах.
+ * @returns {Promise<string>} Отформатированная строка с остатками.
+ */
+async function getStockReport() {
+    if (!authToken) return "Ошибка: нет токена для авторизации.";
+    try {
+        const response = await axios.post(`${API_BASE_URL}/reports/rest_stops`, 
+            { organizationIds: [IIKO_ORGANIZATION_ID] },
+            { headers: { 'Authorization': `Bearer ${authToken}` } }
+        );
+        
+        const items = response.data.data;
+        if (!items || items.length === 0) {
+            return "Остатки не найдены или склады пусты.";
+        }
+
+        let reportText = "*Отчет по остаткам на складах:*\n\n";
+        items.forEach(item => {
+            reportText += `• *${item.name}:* ${item.amount} ${item.unit}\n`;
+        });
+        return reportText;
+
+    } catch (error) {
+        console.error("Ошибка при получении отчета по остаткам:", error.response ? error.response.data : error.message);
+        return "Не удалось получить отчет по остаткам. Попробуйте позже.";
+    }
+}
+
+
+// --- 4. Экспорт ---
+module.exports = {
+    initialize,
+    findDish,
+    getRecipe,
+    getStockReport
+};
+```javascript:server.js
 /*
  * Файл: server.js
- * Описание: Версия 2.0 с интеграцией IIKO.
- * Данные о меню и рецептах теперь запрашиваются из IIKO API.
+ * Описание: Версия 2.1 с интеграцией IIKO и исправленным методом Webhook.
  */
 
 // --- 1. Подключение необходимых библиотек ---
@@ -9,33 +181,42 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const TelegramBot = require("node-telegram-bot-api");
 const cron = require("node-cron");
-const iiko = require('./iiko-api'); // Наш новый модуль для IIKO
+const iiko = require('./iiko-api');
 
 // --- 2. Инициализация ---
 const app = express();
 app.use(bodyParser.json());
 
 const token = process.env.TELEGRAM_TOKEN;
+const url = process.env.RENDER_EXTERNAL_URL || 'https://chef-mate-backend.onrender.com';
+
 if (!token) {
   console.error("КРИТИЧЕСКАЯ ОШИБКА: TELEGRAM_TOKEN не найден!");
   process.exit(1);
 }
 
-const bot = new TelegramBot(token, { polling: true });
-const KITCHEN_CHAT_ID = process.env.KITCHEN_CHAT_ID || '-2389108118';
+// ИСПРАВЛЕНО: Бот инициализируется без polling
+const bot = new TelegramBot(token);
+
+// Устанавливаем Webhook
+const webhookPath = `/telegram/webhook/${token}`;
+bot.setWebHook(`${url}${webhookPath}`);
+console.log(`Webhook установлен на адрес: ${url}${webhookPath}`);
 
 // --- 3. Инициализация модуля IIKO ---
-// ИСПРАВЛЕНО: Теперь блок catch будет правильно обрабатывать ошибку инициализации
 iiko.initialize().then(() => {
     console.log("Модуль IIKO успешно инициализирован и готов к работе.");
 }).catch(err => {
     console.error("КРИТИЧЕСКАЯ ОШИБКА ИНИЦИАЛИЗАЦИИ МОДУЛЯ IIKO:", err.message);
-    // Можно добавить отправку сообщения об ошибке в Telegram, чтобы быть в курсе
-    // bot.sendMessage(KITCHEN_CHAT_ID, `‼️ Внимание! Не удалось подключиться к IIKO. Ошибка: ${err.message}`);
 });
 
-
 // --- 4. Логика обработки команд Telegram ---
+
+// Мы должны слушать входящие запросы от Telegram на наш webhook
+app.post(webhookPath, (req, res) => {
+  bot.processUpdate(req.body);
+  res.sendStatus(200);
+});
 
 // Функция для добавления message_thread_id к опциям, если он есть
 const getReplyOptions = (msg) => {
@@ -96,6 +277,7 @@ function sendHelpMessage(chatId, originalMsg) {
 
 
 // --- 5. Проактивные уведомления (Планировщик) ---
+const KITCHEN_CHAT_ID = process.env.KITCHEN_CHAT_ID || '-2389108118';
 let lineCheckState = { confirmed: false, messageId: null };
 
 const scheduleConfig = [
@@ -117,7 +299,14 @@ const scheduleConfig = [
 
 scheduleConfig.forEach(job => {
     cron.schedule(job.cronTime, async () => {
-        // ... (логика выполнения)
+        try {
+            const sentMessage = await bot.sendMessage(KITCHEN_CHAT_ID, job.message, job.options);
+            if (job.action) {
+                job.action(sentMessage);
+            }
+        } catch (error) {
+            console.error(`Ошибка при отправке запланированного сообщения: ${error.message}`);
+        }
     }, {
         timezone: "Europe/Moscow"
     });
@@ -128,5 +317,5 @@ console.log("Планировщик уведомлений запущен.");
 
 // --- 6. Запуск сервера ---
 const listener = app.listen(process.env.PORT || 3000, () => {
-  console.log("Сервер v2.0 (IIKO) запущен и слушает порт " + listener.address().port);
-}
+  console.log("Сервер v2.1 (IIKO + Webhook) запущен и слушает порт " + listener.address().port);
+})
