@@ -8,32 +8,26 @@ const axios = require('axios');
 
 // --- 1. Конфигурация ---
 const IIKO_API_LOGIN = process.env.IIKO_API_LOGIN;
-const IIKO_ORGANIZATION_ID = process.env.IIKO_ORGANIZATION_ID;
 const API_BASE_URL = 'https://api-ru.iiko.services/api/1';
 
 let authToken = null;
+let organizationId = null; // Будем хранить ID организации
 let nomenclature = null; // Кэш номенклатуры
 
-if (!IIKO_API_LOGIN || !IIKO_ORGANIZATION_ID) {
-    console.error("КРИТИЧЕСКАЯ ОШИБКА: Переменные окружения IIKO_API_LOGIN и IIKO_ORGANIZATION_ID должны быть установлены!");
+if (!IIKO_API_LOGIN) {
+    console.error("КРИТИЧЕСКАЯ ОШИБКА: Переменная окружения IIKO_API_LOGIN должна быть установлена!");
 }
 
-// --- 2. Аутентификация ---
+// --- 2. Аутентификация и инициализация ---
 
 /**
  * Получает токен доступа к API IIKO.
- * @returns {Promise<string>} Возвращает токен.
- * @throws {Error} Если не удалось получить токен.
  */
 async function getAuthToken() {
     try {
-        // Используем правильный параметр `apiLogin` и метод POST
-        const response = await axios.post(`${API_BASE_URL}/access_token`, {
-            apiLogin: IIKO_API_LOGIN
-        });
+        const response = await axios.post(`${API_BASE_URL}/access_token`, { apiLogin: IIKO_API_LOGIN });
         console.log("Токен IIKO успешно получен.");
-        authToken = response.data.token; // Токен находится в поле `token`
-        return authToken;
+        authToken = response.data.token;
     } catch (error) {
         const errorMessage = error.response ? JSON.stringify(error.response.data) : error.message;
         console.error("Ошибка при получении токена IIKO:", errorMessage);
@@ -42,33 +36,54 @@ async function getAuthToken() {
 }
 
 /**
- * Инициализирует модуль: получает токен и запускает таймер его обновления.
- * @throws {Error} Если инициализация не удалась.
+ * Получает список организаций и сохраняет ID первой.
+ */
+async function getOrganizations() {
+    if (!authToken) throw new Error("Нет токена для запроса организаций.");
+    try {
+        const response = await axios.post(`${API_BASE_URL}/organizations`, {}, {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        if (response.data.organizations && response.data.organizations.length > 0) {
+            organizationId = response.data.organizations[0].id;
+            console.log(`Получен ID организации: ${organizationId}`);
+        } else {
+            throw new Error("Список организаций пуст.");
+        }
+    } catch (error) {
+        const errorMessage = error.response ? JSON.stringify(error.response.data) : error.message;
+        console.error("Ошибка при получении организаций:", errorMessage);
+        throw new Error(`Не удалось получить организации: ${errorMessage}`);
+    }
+}
+
+
+/**
+ * Инициализирует модуль: получает токен, ID организации и номенклатуру.
  */
 async function initialize() {
-    await getAuthToken(); // Получаем первый токен
-    
-    // Токен IIKO живет 60 минут, обновляем каждые 55 минут.
-    setInterval(getAuthToken, 55 * 60 * 1000);
+    await getAuthToken(); // 1. Получаем токен
+    await getOrganizations(); // 2. Получаем организации
+    await refreshNomenclature(); // 3. Получаем номенклатуру
 
-    // Также загрузим и закэшируем номенклатуру при старте
-    await refreshNomenclature();
+    // Настраиваем периодическое обновление токена
+    setInterval(getAuthToken, 55 * 60 * 1000);
 }
 
 // --- 3. Функции для работы с данными ---
 
 /**
  * Обновляет кэш номенклатуры (товары, блюда, заготовки).
+ * ИСПРАВЛЕНО: Теперь запрашивается с ID организации.
  */
 async function refreshNomenclature() {
-    if (!authToken) {
-        console.error("Пропуск обновления номенклатуры: отсутствует токен авторизации.");
+    if (!authToken || !organizationId) {
+        console.error("Пропуск обновления номенклатуры: отсутствует токен или ID организации.");
         return;
     }
     try {
-        // ИСПРАВЛЕНО: Теперь мы правильно передаем ID организации
         const response = await axios.post(`${API_BASE_URL}/nomenclature`, 
-            { organizationIds: [IIKO_ORGANIZATION_ID] },
+            { organizationId: organizationId },
             { headers: { 'Authorization': `Bearer ${authToken}` } }
         );
         nomenclature = response.data;
@@ -81,22 +96,18 @@ async function refreshNomenclature() {
 
 /**
  * Находит блюдо в номенклатуре по части названия.
- * @param {string} query - Часть названия блюда для поиска.
- * @returns {object|null} Найденный объект блюда или null.
  */
 function findDish(query) {
-    if (!nomenclature) return null;
+    if (!nomenclature || !nomenclature.dishes) return null;
     const lowerCaseQuery = query.toLowerCase();
     return nomenclature.dishes.find(d => d.name.toLowerCase().includes(lowerCaseQuery));
 }
 
 /**
  * Получает технологическую карту (рецепт) для блюда.
- * @param {string} dishId - ID блюда.
- * @returns {string} Отформатированная строка с рецептом.
  */
 function getRecipe(dishId) {
-    if (!nomenclature) return "Номенклатура еще не загружена.";
+    if (!nomenclature || !nomenclature.products) return "Номенклатура еще не загружена.";
     
     const dish = nomenclature.dishes.find(d => d.id === dishId);
     if (!dish || !dish.assemblyCharts || dish.assemblyCharts.length === 0) {
@@ -117,14 +128,12 @@ function getRecipe(dishId) {
 
 /**
  * Получает остатки на складах.
- * @returns {Promise<string>} Отформатированная строка с остатками.
  */
 async function getStockReport() {
-    if (!authToken) return "Ошибка: нет токена для авторизации.";
+    if (!authToken || !organizationId) return "Ошибка: нет токена или ID организации.";
     try {
-        // ИСПРАВЛЕНО: Теперь мы правильно передаем ID организации
         const response = await axios.post(`${API_BASE_URL}/reports/rest_stops`, 
-            { organizationIds: [IIKO_ORGANIZATION_ID] },
+            { organizationIds: [organizationId] }, // API требует массив ID
             { headers: { 'Authorization': `Bearer ${authToken}` } }
         );
         
