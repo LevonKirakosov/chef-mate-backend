@@ -2,7 +2,7 @@
  * Файл: iiko-api.js
  * Описание: Модуль для взаимодействия с API IIKO.
  * Управляет аутентификацией, получением номенклатуры, остатков и рецептов.
- * ФИНАЛЬНАЯ ВЕРСИЯ: Добавлен обязательный шаг получения терминальных групп и его ИСПОЛЬЗОВАНИЕ.
+ * ДОБАВЛЕНО: Функция для поиска остатков по конкретному продукту.
  */
 
 const axios = require('axios');
@@ -13,7 +13,7 @@ const API_BASE_URL = 'https://api-ru.iiko.services/api/1';
 
 let authToken = null;
 let organizationId = null;
-let terminalGroupId = null; // Переменная для хранения ID терминальной группы
+let terminalGroupId = null;
 let nomenclature = null;
 
 if (!IIKO_API_LOGIN) {
@@ -68,13 +68,12 @@ async function getTerminalGroups() {
         const response = await axios.post(`${API_BASE_URL}/terminal_groups`,
             {
                 organizationIds: [organizationId],
-                includeDisabled: false // Не включать отключенные
+                includeDisabled: false
             },
             { headers: { 'Authorization': `Bearer ${authToken}` } }
         );
 
         if (response.data.terminalGroups && response.data.terminalGroups.length > 0 && response.data.terminalGroups[0].items.length > 0) {
-            // Берем первую активную терминальную группу.
             terminalGroupId = response.data.terminalGroups[0].items[0].id;
             console.log(`Получен ID терминальной группы: ${terminalGroupId}`);
         } else {
@@ -92,12 +91,11 @@ async function getTerminalGroups() {
  * Инициализирует модуль, выполняя всю цепочку запросов.
  */
 async function initialize() {
-    await getAuthToken();           // 1. Получаем токен
-    await getOrganizations();       // 2. Получаем организации
-    await getTerminalGroups();      // 3. ПОЛУЧАЕМ ТЕРМИНАЛЬНЫЕ ГРУППЫ
-    await refreshNomenclature();    // 4. Получаем номенклатуру
+    await getAuthToken();
+    await getOrganizations();
+    await getTerminalGroups();
+    await refreshNomenclature();
 
-    // Настраиваем периодическое обновление токена
     setInterval(getAuthToken, 55 * 60 * 1000);
 }
 
@@ -105,7 +103,6 @@ async function initialize() {
 
 /**
  * Шаг 4: Обновляет кэш номенклатуры.
- * ИСПРАВЛЕНО: Теперь используется ID терминальной группы для получения меню.
  */
 async function refreshNomenclature() {
     if (!authToken || !organizationId || !terminalGroupId) {
@@ -116,7 +113,7 @@ async function refreshNomenclature() {
         const response = await axios.post(`${API_BASE_URL}/nomenclature`,
             {
                 organizationId: organizationId,
-                terminalGroupId: terminalGroupId // ЯВНО УКАЗЫВАЕМ ID ТЕРМИНАЛЬНОЙ ГРУППЫ
+                terminalGroupId: terminalGroupId
             },
             { headers: { 'Authorization': `Bearer ${authToken}` } }
         );
@@ -163,7 +160,7 @@ function getRecipe(dishId) {
 }
 
 /**
- * Получает остатки на складах.
+ * Получает полный отчет по остаткам на складах.
  */
 async function getStockReport() {
     if (!authToken || !organizationId) return "Ошибка: нет токена или ID организации.";
@@ -178,11 +175,44 @@ async function getStockReport() {
             return "Остатки не найдены или склады пусты.";
         }
 
-        let reportText = "*Отчет по остаткам на складах:*\n\n";
+        let reportText = "*Полный отчет по остаткам на складах:*\n\n";
         items.forEach(item => {
             reportText += `• *${item.name}:* ${item.amount} ${item.unit}\n`;
         });
         return reportText;
+
+    } catch (error) {
+        console.error("Ошибка при получении отчета по остаткам:", error.response ? error.response.data : error.message);
+        return "Не удалось получить отчет по остаткам. Попробуйте позже.";
+    }
+}
+
+/**
+ * НОВАЯ ФУНКЦИЯ: Получает остатки по конкретному продукту.
+ * @param {string} query - Часть названия продукта для поиска.
+ * @returns {Promise<string>} Отформатированная строка с остатком.
+ */
+async function findProductStock(query) {
+    if (!authToken || !organizationId) return "Ошибка: нет токена или ID организации.";
+    try {
+        const response = await axios.post(`${API_BASE_URL}/reports/rest_stops`,
+            { organizationIds: [organizationId] },
+            { headers: { 'Authorization': `Bearer ${authToken}` } }
+        );
+
+        const items = response.data.data;
+        if (!items || items.length === 0) {
+            return "Остатки не найдены или склады пусты.";
+        }
+
+        const lowerCaseQuery = query.toLowerCase();
+        const foundItem = items.find(item => item.name.toLowerCase().includes(lowerCaseQuery));
+
+        if (foundItem) {
+            return `*Остаток для "${foundItem.name}":* ${foundItem.amount} ${foundItem.unit}`;
+        } else {
+            return `Продукт, содержащий "${query}", не найден на остатках.`;
+        }
 
     } catch (error) {
         console.error("Ошибка при получении отчета по остаткам:", error.response ? error.response.data : error.message);
@@ -196,5 +226,6 @@ module.exports = {
     initialize,
     findDish,
     getRecipe,
-    getStockReport
+    getStockReport,
+    findProductStock // Экспортируем новую функцию
 };
