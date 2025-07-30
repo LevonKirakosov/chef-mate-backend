@@ -21,14 +21,17 @@ if (!token) {
   process.exit(1);
 }
 
-const bot = new TelegramBot(token, { polling: true }); // Включаем polling для простоты
+const bot = new TelegramBot(token, { polling: true });
 const KITCHEN_CHAT_ID = process.env.KITCHEN_CHAT_ID || '-2389108118';
 
 // --- 3. Инициализация модуля IIKO ---
+// ИСПРАВЛЕНО: Теперь блок catch будет правильно обрабатывать ошибку инициализации
 iiko.initialize().then(() => {
     console.log("Модуль IIKO успешно инициализирован и готов к работе.");
 }).catch(err => {
-    console.error("Ошибка при инициализации модуля IIKO:", err);
+    console.error("КРИТИЧЕСКАЯ ОШИБКА ИНИЦИАЛИЗАЦИИ МОДУЛЯ IIKO:", err.message);
+    // Можно добавить отправку сообщения об ошибке в Telegram, чтобы быть в курсе
+    // bot.sendMessage(KITCHEN_CHAT_ID, `‼️ Внимание! Не удалось подключиться к IIKO. Ошибка: ${err.message}`);
 });
 
 
@@ -93,11 +96,9 @@ function sendHelpMessage(chatId, originalMsg) {
 
 
 // --- 5. Проактивные уведомления (Планировщик) ---
-// Логика планировщика остается прежней, но теперь она может быть расширена данными из IIKO
 let lineCheckState = { confirmed: false, messageId: null };
 
 const scheduleConfig = [
-    // ... (Ваши существующие задачи из cron)
     {
         cronTime: '0 6 * * 1-5', // 09:00 МСК (UTC+3)
         message: `*Утренний Лайн-чек (09:00)* ☀️\n\nДоброе утро, команда! Пора начинать проверку станции. Ответственный, пожалуйста, подтвердите готовность.\n\nТакже не забудьте *распечатать Лайн-чек* с заготовочным листом с основного сайта KMS.`,
@@ -118,7 +119,7 @@ scheduleConfig.forEach(job => {
     cron.schedule(job.cronTime, async () => {
         // ... (логика выполнения)
     }, {
-        timezone: "Europe/Moscow" // Устанавливаем таймзону для корректной работы
+        timezone: "Europe/Moscow"
     });
 });
 
@@ -128,4 +129,4 @@ console.log("Планировщик уведомлений запущен.");
 // --- 6. Запуск сервера ---
 const listener = app.listen(process.env.PORT || 3000, () => {
   console.log("Сервер v2.0 (IIKO) запущен и слушает порт " + listener.address().port);
-});
+})
