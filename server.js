@@ -15,7 +15,7 @@ const app = express();
 app.use(bodyParser.json());
 
 const token = process.env.TELEGRAM_TOKEN;
-const url = process.env.RENDER_EXTERNAL_URL || '[https://chef-mate-backend.onrender.com](https://chef-mate-backend.onrender.com)';
+const url = process.env.RENDER_EXTERNAL_URL || 'https://chef-mate-backend.onrender.com';
 
 if (!token) {
   console.error("КРИТИЧЕСКАЯ ОШИБКА: TELEGRAM_TOKEN не найден!");
