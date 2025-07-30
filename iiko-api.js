@@ -1,23 +1,3 @@
-{
-  "name": "chef-mate-backend",
-  "version": "2.0.0",
-  "description": "Backend server for the Chef-Mate kitchen management system with IIKO integration.",
-  "main": "server.js",
-  "scripts": {
-    "start": "node server.js"
-  },
-  "dependencies": {
-    "express": "^4.17.1",
-    "body-parser": "^1.19.0",
-    "node-telegram-bot-api": "^0.61.0",
-    "node-cron": "^3.0.2",
-    "axios": "^1.6.0"
-  },
-  "engines": {
-    "node": "16.x"
-  }
-}
-```javascript:iiko-api.js
 /*
  * Файл: iiko-api.js
  * Описание: Модуль для взаимодействия с API IIKO.
@@ -29,8 +9,8 @@ const axios = require('axios');
 // --- 1. Конфигурация ---
 const IIKO_API_LOGIN = process.env.IIKO_API_LOGIN;
 const IIKO_ORGANIZATION_ID = process.env.IIKO_ORGANIZATION_ID;
-// ИСПРАВЛЕНО: URL теперь является чистой строкой без лишних символов.
-const API_BASE_URL = '[https://api-ru.iiko.services/api/1](https://api-ru.iiko.services/api/1)';
+// ФИНАЛЬНОЕ ИСПРАВЛЕНИЕ: URL теперь является чистой строкой без лишних символов.
+const API_BASE_URL = 'https://api-ru.iiko.services/api/1';
 
 let authToken = null;
 let nomenclature = null; // Кэш номенклатуры
