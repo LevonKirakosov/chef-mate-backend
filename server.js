@@ -1,6 +1,6 @@
 /*
  * Файл: server.js
- * Описание: Версия 2.2. Финальное исправление синтаксической ошибки.
+ * Описание: Версия 2.3. Финальное исправление.
  */
 
 // --- 1. Подключение необходимых библиотек ---
@@ -15,8 +15,7 @@ const app = express();
 app.use(bodyParser.json());
 
 const token = process.env.TELEGRAM_TOKEN;
-// ФИНАЛЬНОЕ ИСПРАВЛЕНИЕ: URL теперь является чистой строкой.
-const url = process.env.RENDER_EXTERNAL_URL || 'https://chef-mate-backend.onrender.com';
+const url = process.env.RENDER_EXTERNAL_URL || '[https://chef-mate-backend.onrender.com](https://chef-mate-backend.onrender.com)';
 
 if (!token) {
   console.error("КРИТИЧЕСКАЯ ОШИБКА: TELEGRAM_TOKEN не найден!");
@@ -145,5 +144,5 @@ console.log("Планировщик уведомлений запущен.");
 
 // --- 6. Запуск сервера ---
 const listener = app.listen(process.env.PORT || 3000, () => {
-  console.log("Сервер v2.2 (IIKO + Webhook) запущен и слушает порт " + listener.address().port);
+  console.log("Сервер v2.3 (IIKO + Webhook) запущен и слушает порт " + listener.address().port);
 });
