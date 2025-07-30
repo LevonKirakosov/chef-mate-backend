@@ -40,7 +40,7 @@ const menuData = {
 };
 const dayNames = { monday: 'Понедельник', tuesday: 'Вторник', wednesday: 'Среда', thursday: 'Четверг', friday: 'Пятница' };
 // ID чата шеф-повара для отправки уведомлений. Замените на реальный ID.
-const CHEF_TELEGRAM_ID = '123456789'; // ВАЖНО: Замените это на ваш реальный Telegram User ID
+const CHEF_TELEGRAM_ID = '2553122118'; // ВАЖНО: Замените это на ваш реальный Telegram User ID
 
 // --- 4. Логика обработки сообщений от Telegram ---
 
