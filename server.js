@@ -275,6 +275,30 @@ console.log("Планировщик уведомлений запущен с о�
 
 
 // --- 6. Запуск сервера ---
+const multer = require("multer");
+const xlsx = require("xlsx");
+const path = require("path");
+const fs = require("fs");
+
+const upload = multer({ dest: "uploads/" });
+
+app.post("/upload", upload.single("file"), (req, res) => {
+    try {
+        const filePath = req.file.path;
+        const workbook = xlsx.readFile(filePath);
+        const sheetName = workbook.SheetNames[0];
+        const data = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
+
+        global.recipeBook = data;
+        fs.unlinkSync(filePath);
+
+        res.send("✅ Файл успешно загружен и обработан!");
+    } catch (error) {
+        console.error("Ошибка загрузки файла:", error);
+        res.status(500).send("❌ Ошибка при обработке файла.");
+    }
+});
+
 const listener = app.listen(process.env.PORT || 3000, () => {
   console.log("Сервер запущен и слушает порт " + listener.address().port);
 });
