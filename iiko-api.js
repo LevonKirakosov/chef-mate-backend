@@ -66,6 +66,7 @@ async function refreshNomenclature() {
         return;
     }
     try {
+        // ИСПРАВЛЕНО: Теперь мы правильно передаем ID организации
         const response = await axios.post(`${API_BASE_URL}/nomenclature`, 
             { organizationIds: [IIKO_ORGANIZATION_ID] },
             { headers: { 'Authorization': `Bearer ${authToken}` } }
@@ -121,6 +122,7 @@ function getRecipe(dishId) {
 async function getStockReport() {
     if (!authToken) return "Ошибка: нет токена для авторизации.";
     try {
+        // ИСПРАВЛЕНО: Теперь мы правильно передаем ID организации
         const response = await axios.post(`${API_BASE_URL}/reports/rest_stops`, 
             { organizationIds: [IIKO_ORGANIZATION_ID] },
             { headers: { 'Authorization': `Bearer ${authToken}` } }
