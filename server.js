@@ -57,7 +57,7 @@ const menuData = {
     ]}
 };
 const dayNames = { monday: 'Понедельник', tuesday: 'Вторник', wednesday: 'Среда', thursday: 'Четверг', friday: 'Пятница' };
-const KITCHEN_CHAT_ID = '-1002389108118'; // ВАЖНО: Замените это на ID вашего группового чата
+const KITCHEN_CHAT_ID = '-2389108118'; // ВАЖНО: Замените это на ID вашего группового чата
 
 // --- 4. Логика обработки сообщений от Telegram ---
 
