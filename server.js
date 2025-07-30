@@ -1,7 +1,7 @@
 /*
  * Файл: server.js
- * Описание: Финальная, полнофункциональная версия v3.
- * Добавлена реакция на ключевые слова и интерактивное меню с кнопками.
+ * Описание: Финальная, проактивная версия v5.
+ * Стартовая команда заменена на ключевое слово "Шеф".
  */
 
 // --- 1. Подключение необходимых библиотек ---
@@ -21,10 +21,9 @@ if (!token) {
 }
 
 const bot = new TelegramBot(token, { polling: false });
-
 const webhookPath = `/telegram/webhook/${token}`;
 
-// --- 3. Полная База Данных (интегрирована с сайта) ---
+// --- 3. База Данных и Конфигурация ---
 const menuData = {
     monday: { name: "Италия 🇮🇹", dishes: [
         { id: 'ita-sal', type: 'Салат', name: 'Панцанелла', desc: '(томаты, огурцы, хлеб, базилик)', cooking_process: '1. Нарезать крупно помидоры, огурцы, лук. 2. Подсушить хлеб. 3. Смешать овощи, хлеб, базилик и заправить оливковым маслом и винным уксусом. Дать настояться 5-10 минут.' },
@@ -55,6 +54,8 @@ const menuData = {
 const dayNames = { monday: 'Понедельник', tuesday: 'Вторник', wednesday: 'Среда', thursday: 'Четверг', friday: 'Пятница' };
 const KITCHEN_CHAT_ID = '-2389108118'; // ID вашего группового чата
 
+let lineCheckState = { confirmed: false, messageId: null };
+
 // --- 4. Логика обработки сообщений от Telegram ---
 
 app.post(webhookPath, (req, res) => {
@@ -62,12 +63,21 @@ app.post(webhookPath, (req, res) => {
   res.sendStatus(200);
 });
 
-// Приветствие
-bot.onText(/\/start/, (msg) => {
+// Приветствие по слову "Шеф"
+bot.onText(/^шеф/i, (msg) => {
   const chatId = msg.chat.id;
   const userName = msg.from.first_name || 'Повар';
-  const welcomeMessage = `Добро пожаловать, ${userName}! Я ваш цифровой су-шеф "Chef-Mate".\n\nЯ готов помогать вам управлять кухней. Вот что я умею:\n- **/menu [день]**: Показать меню (например, /menu понедельник).\n- **/recipe [название]**: Показать рецепт (например, /recipe харчо).\n- **/fullmenu**: Показать полное интерактивное меню.\n\nИли просто напишите в чат "шеф, помощь", и я откликнусь!`;
-  bot.sendMessage(chatId, welcomeMessage);
+  const welcomeMessage = `*Слушаю вас, ${userName}!* 👨‍🍳\n\nЯ ваш цифровой су-шеф "Chef-Mate". Готов помочь сделать нашу кухню самой организованной!\n\n🚀 *Быстрый старт:*`;
+  const options = {
+      parse_mode: 'Markdown',
+      reply_markup: {
+          inline_keyboard: [
+              [{ text: '🗓️ Показать полное меню', callback_data: 'show_full_menu' }],
+              [{ text: '❓ Получить помощь', callback_data: 'show_help' }]
+          ]
+      }
+  };
+  bot.sendMessage(chatId, welcomeMessage, options);
 });
 
 // Команда /menu
@@ -101,56 +111,27 @@ bot.onText(/\/recipe (.+)/, (msg, match) => {
         if (dish) { foundDish = dish; break; }
     }
     if (foundDish) {
-        const response = `*Краткая технология "${foundDish.name}":*\n\n${foundDish.cooking_process}`;
+        const response = `*Краткая технология "${foundDish.name}":*\n\n${foundDish.cooking_process}\n\n_Полная ТТК, информация о хранении и подаче доступна на основном сайте KMS._`;
         bot.sendMessage(chatId, response, { parse_mode: 'Markdown' });
     } else {
         bot.sendMessage(chatId, `Рецепт для "${query}" не найден. Пожалуйста, проверьте название.`);
     }
 });
 
-// НОВАЯ КОМАНДА: /fullmenu
+// Команда /fullmenu
 bot.onText(/\/fullmenu/, (msg) => {
-    const chatId = msg.chat.id;
-    let response = "🗓️ *Полное меню бизнес-ланча «Кухни Мира»*\n\n";
-    
-    Object.keys(menuData).forEach(dayKey => {
-        const dayData = menuData[dayKey];
-        response += `\n*${dayNames[dayKey]} — ${dayData.name}*\n`;
-        const buttons = [];
-        dayData.dishes.forEach(dish => {
-            response += `  ${dish.type === 'Салат' ? '🥗' : dish.type === 'Суп' ? '🍲' : '🥘'} *${dish.name}* ${dish.desc}\n`;
-            buttons.push({ text: `📜 Рецепт "${dish.name}"`, callback_data: `recipe_${dish.id}` });
-        });
-        
-        const keyboard = [];
-        for (let i = 0; i < buttons.length; i += 1) {
-            keyboard.push(buttons.slice(i, i + 1));
-        }
-
-        bot.sendMessage(chatId, response, {
-            parse_mode: 'Markdown',
-            reply_markup: {
-                inline_keyboard: keyboard
-            }
-        });
-        response = ""; // Reset for next day
-    });
+    sendFullMenu(msg.chat.id);
 });
 
-// НОВАЯ ЛОГИКА: Реакция на ключевые слова
+// Реакция на ключевые слова
 bot.on('message', (msg) => {
     const chatId = msg.chat.id;
     const text = msg.text ? msg.text.toLowerCase() : '';
-
-    // Игнорируем команды и собственные сообщения
-    if (text.startsWith('/') || msg.from.is_bot) return;
-
-    if (text.includes('шеф') || text.includes('бот') || text.includes('помощь')) {
-        const helpMessage = `Слушаю вас! 👨‍🍳\n\nЕсли вам нужна информация, воспользуйтесь командами:\n- **/menu [день]**\n- **/recipe [название]**\n- **/fullmenu**`;
-        bot.sendMessage(chatId, helpMessage);
+    if (text.startsWith('/') || msg.from.is_bot || text.startsWith('шеф')) return;
+    if (text.includes('бот') || text.includes('помощь')) {
+        sendHelpMessage(chatId);
     }
 });
-
 
 // Обработка нажатий на inline-кнопки
 bot.on('callback_query', (callbackQuery) => {
@@ -159,7 +140,13 @@ bot.on('callback_query', (callbackQuery) => {
     const chatId = msg.chat.id;
     const user = callbackQuery.from.first_name;
 
-    if (data.startsWith('recipe_')) {
+    if (data === 'show_full_menu') {
+        sendFullMenu(chatId);
+        bot.answerCallbackQuery(callbackQuery.id);
+    } else if (data === 'show_help') {
+        sendHelpMessage(chatId);
+        bot.answerCallbackQuery(callbackQuery.id);
+    } else if (data.startsWith('recipe_')) {
         const dishId = data.replace('recipe_', '');
         let foundDish = null;
         for (const day in menuData) {
@@ -167,11 +154,12 @@ bot.on('callback_query', (callbackQuery) => {
             if (dish) { foundDish = dish; break; }
         }
         if (foundDish) {
-            const response = `*Краткая технология "${foundDish.name}":*\n\n${foundDish.cooking_process}`;
+            const response = `*Краткая технология "${foundDish.name}":*\n\n${foundDish.cooking_process}\n\n_Полная ТТК, информация о хранении и подаче доступна на основном сайте KMS._`;
             bot.sendMessage(chatId, response, { parse_mode: 'Markdown' });
             bot.answerCallbackQuery(callbackQuery.id, { text: `Рецепт "${foundDish.name}" отправлен.` });
         }
     } else if (data === 'line_check_confirm') {
+        lineCheckState.confirmed = true;
         bot.editMessageText(`*Утренний Лайн-чек (09:00)*\n\nСтанция готова к работе. ✅\n_Подтвердил(а): ${user} в ${new Date().toLocaleTimeString('ru-RU', { timeZone: 'Europe/Moscow' })}_`, {
             chat_id: chatId,
             message_id: msg.message_id,
@@ -181,28 +169,96 @@ bot.on('callback_query', (callbackQuery) => {
     }
 });
 
+// --- Вспомогательные функции ---
+function sendFullMenu(chatId) {
+    let initialMessage = "🗓️ *Полное меню бизнес-ланча «Кухни Мира»*\n\n";
+    bot.sendMessage(chatId, initialMessage, { parse_mode: 'Markdown' });
+
+    Object.keys(menuData).forEach((dayKey, index) => {
+        const dayData = menuData[dayKey];
+        let response = `*${dayNames[dayKey]} — ${dayData.name}*\n`;
+        const buttons = [];
+        
+        dayData.dishes.forEach(dish => {
+            const emoji = dish.type === 'Салат' ? '🥗' : dish.type === 'Суп' ? '🍲' : '🥘';
+            response += `  ${emoji} *${dish.name}* ${dish.desc}\n`;
+            buttons.push({ text: `📜 Рецепт "${dish.name}"`, callback_data: `recipe_${dish.id}` });
+        });
+        
+        const keyboard = [];
+        for (let i = 0; i < buttons.length; i++) {
+            keyboard.push([buttons[i]]);
+        }
+
+        setTimeout(() => {
+            bot.sendMessage(chatId, response, {
+                parse_mode: 'Markdown',
+                reply_markup: {
+                    inline_keyboard: keyboard
+                }
+            });
+        }, (index + 1) * 500);
+    });
+}
+
+function sendHelpMessage(chatId) {
+    const helpMessage = `Я к вашим услугам! 👨‍🍳\n\nЕсли вам нужна информация, воспользуйтесь командами:\n- **/menu [день]**\n- **/recipe [название]**\n- **/fullmenu**\n\nИли просто напишите "Шеф", чтобы вызвать главное меню.`;
+    bot.sendMessage(chatId, helpMessage);
+}
+
 // --- 5. Проактивные уведомления (Планировщик) ---
-cron.schedule('0 6 * * 1-5', () => {
-    const message = `*Утренний Лайн-чек (09:00)*\n\nДоброе утро, команда! Пора начинать проверку станции. Ответственный, пожалуйста, подтвердите готовность.`;
-    const options = {
-        reply_markup: {
-            inline_keyboard: [
-                [{ text: '✅ Подтвердить готовность', callback_data: 'line_check_confirm' }]
-            ]
+const scheduleConfig = [
+    {
+        cronTime: '0 6 * * 1-5', // 11:00 МСК
+        message: `*Утренний Лайн-чек (11:00)* ☀️\n\nДоброе утро, команда! Пора начинать проверку станции. Ответственный, пожалуйста, подтвердите готовность.\n\nТакже не забудьте *распечатать Лайн-чек* с заготовочным листом с основного сайта KMS.`,
+        options: {
+            reply_markup: {
+                inline_keyboard: [[{ text: '✅ Подтвердить готовность', callback_data: 'line_check_confirm' }]]
+            },
+            parse_mode: 'Markdown'
         },
-        parse_mode: 'Markdown'
-    };
-    bot.sendMessage(KITCHEN_CHAT_ID, message, options);
-}, {
-    timezone: "Etc/UTC"
+        action: (message) => {
+            lineCheckState.confirmed = false;
+            lineCheckState.messageId = message.message_id;
+        }
+    },
+    {
+        cronTime: '30 6 * * 1-5', // 11:30 МСК
+        message: `*‼️ ВНИМАНИЕ: Лайн-чек не подтвержден! (11:30)*\n\nКоманда, утренний Лайн-чек все еще не подтвержден. Прошу ответственного немедленно выполнить проверку и нажать кнопку в предыдущем сообщении.`,
+        options: { parse_mode: 'Markdown' },
+        condition: () => !lineCheckState.confirmed
+    },
+    {
+        cronTime: '0 12 * * 1-5', // 15:00 МСК
+        message: `*Контроль HACCP (15:00)* 🌡️\n\nНапоминание: Время замерить температуру в холодильнике №2 (мясной). Внесите значение в журнал.`,
+        options: { parse_mode: 'Markdown' }
+    },
+    {
+        cronTime: '0 18 * * 1-5', // 22:00 МСК
+        message: `*Контроль сроков годности (22:00)* ⏳\n\nНапоминание: Проверьте маркировки на всех заготовках, сделанных сегодня. Убедитесь, что все сроки годности указаны корректно.`,
+        options: { parse_mode: 'Markdown' }
+    }
+];
+
+scheduleConfig.forEach(job => {
+    cron.schedule(job.cronTime, async () => {
+        if (job.condition && !job.condition()) {
+            return;
+        }
+        try {
+            const sentMessage = await bot.sendMessage(KITCHEN_CHAT_ID, job.message, job.options);
+            if (job.action) {
+                job.action(sentMessage);
+            }
+        } catch (error) {
+            console.error(`Ошибка при отправке запланированного сообщения: ${error.message}`);
+        }
+    }, {
+        timezone: "Etc/UTC"
+    });
 });
 
-cron.schedule('0 12 * * 1-5', () => {
-    const message = `*Контроль HACCP (15:00)*\n\nНапоминание: Время замерить температуру в холодильнике №2 (мясной). Внесите значение в журнал.`;
-    bot.sendMessage(KITCHEN_CHAT_ID, message, { parse_mode: 'Markdown' });
-}, {
-    timezone: "Etc/UTC"
-});
+console.log("Планировщик уведомлений запущен с обновленной конфигурацией.");
 
 // --- 6. Запуск сервера ---
 const listener = app.listen(process.env.PORT || 3000, () => {
