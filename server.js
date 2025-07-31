@@ -22,7 +22,7 @@ if (!token) {
 }
 console.log(">>> [INFO] Токен успешно загружен.");
 
-const bot = new TelegramBot(token, { polling: false });
+const bot = new TelegramBot(token, { polling: true });
 
 const webhookPath = `/telegram/webhook/${token}`;
 console.log(`>>> [INFO] Сервер готов принимать сообщения по пути: ${webhookPath}`);
