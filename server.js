@@ -1,7 +1,7 @@
 /*
  * Файл: server.js
- * Версия: v10 - Интеграция с отчетами iiko
- * Описание: Сервер теперь умеет принимать и обрабатывать Excel-файлы с отчетами о продажах.
+ * Версия: v11 - Исправление CORS
+ * Описание: Добавлена библиотека cors для разрешения запросов с веб-интерфейса.
  */
 
 // --- 1. Подключение необходимых библиотек ---
@@ -12,12 +12,12 @@ const cron = require("node-cron");
 const fs = require("fs");
 const multer = require("multer");
 const xlsx = require("xlsx");
-const cors = require('cors');
+const cors = require('cors'); // Подключаем CORS
 
 // --- 2. Инициализация ---
 const app = express();
 app.use(bodyParser.json());
-app.use(cors());
+app.use(cors()); // Включаем CORS для всех запросов
 
 const token = process.env.TELEGRAM_TOKEN;
 if (!token) {
@@ -30,7 +30,7 @@ const webhookPath = `/telegram/webhook/${token}`;
 const upload = multer({ dest: "uploads/" });
 
 // --- 3. База Данных и Конфигурация ---
-let salesData = {}; // "База данных" для хранения данных о продажах
+let salesData = {}; 
 const KITCHEN_CHAT_ID = '-1002389108118';
 
 // --- 4. API для сайта KMS ---
@@ -39,23 +39,24 @@ app.post('/api/sales/upload', upload.single('salesReport'), (req, res) => {
         if (!req.file) {
             return res.status(400).json({ success: false, message: "Файл не был загружен." });
         }
+        console.log(">>> [API] Файл получен, начинается обработка...");
 
         const workbook = xlsx.readFile(req.file.path);
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
         const data = xlsx.utils.sheet_to_json(worksheet, { header: 1 });
 
-        // Простая логика парсинга: ищем колонки "Блюдо" и "Количество"
         const header = data[0];
-        const dishIndex = header.findIndex(h => h.toLowerCase().includes('блюдо'));
-        const qtyIndex = header.findIndex(h => h.toLowerCase().includes('количество'));
+        const dishIndex = header.findIndex(h => String(h).toLowerCase().includes('блюдо'));
+        const qtyIndex = header.findIndex(h => String(h).toLowerCase().includes('количество'));
 
         if (dishIndex === -1 || qtyIndex === -1) {
-            fs.unlinkSync(req.file.path); // Удаляем временный файл
+            fs.unlinkSync(req.file.path);
+            console.log(">>> [API ERROR] В файле не найдены колонки 'Блюдо' и 'Количество'.");
             return res.status(400).json({ success: false, message: "В файле не найдены колонки 'Блюдо' и 'Количество'." });
         }
 
-        salesData = {}; // Очищаем старые данные
+        salesData = {}; 
         for (let i = 1; i < data.length; i++) {
             const row = data[i];
             const dishName = row[dishIndex];
@@ -65,16 +66,16 @@ app.post('/api/sales/upload', upload.single('salesReport'), (req, res) => {
             }
         }
 
-        fs.unlinkSync(req.file.path); // Удаляем временный файл
+        fs.unlinkSync(req.file.path); 
         
         const processedRows = Object.keys(salesData).length;
-        console.log(">>> [API] Обработан отчет о продажах:", salesData);
-        bot.sendMessage(KITCHEN_CHAT_ID, `📊 *Отчет о продажах загружен!*\n\nОбработано *${processedRows}* уникальных позиций. Теперь я готов предоставить статистику по команде /stats.`);
+        console.log(">>> [API SUCCESS] Обработан отчет о продажах:", salesData);
+        bot.sendMessage(KITCHEN_CHAT_ID, `📊 *Отчет о продажах загружен!*\n\nОбработано *${processedRows}* уникальных позиций. Теперь я готов предоставить статистику по команде /stats.`, { parse_mode: 'Markdown' });
 
         res.json({ success: true, message: "Отчет успешно обработан.", processedRows });
 
     } catch (error) {
-        console.error("Ошибка обработки файла:", error);
+        console.error(">>> [API ERROR] Ошибка обработки файла:", error);
         res.status(500).json({ success: false, message: "Внутренняя ошибка сервера при обработке файла." });
     }
 });
@@ -86,7 +87,6 @@ app.post(webhookPath, (req, res) => {
   res.sendStatus(200);
 });
 
-// Добавляем новую команду /stats
 bot.onText(/\/stats/, (msg) => {
     const chatId = msg.chat.id;
     if (Object.keys(salesData).length === 0) {
@@ -97,7 +97,6 @@ bot.onText(/\/stats/, (msg) => {
     let response = "*📊 Сводка по продажам за сегодня:*\n\n";
     let totalSold = 0;
     
-    // Сортируем блюда по количеству продаж
     const sortedSales = Object.entries(salesData).sort(([,a],[,b]) => b-a);
 
     sortedSales.forEach(([dishName, quantity], index) => {
@@ -247,5 +246,5 @@ cron.schedule('0 12 * * 1-5', () => {
 
 // --- 7. Запуск сервера ---
 const listener = app.listen(process.env.PORT || 3000, () => {
-  console.log("Chef-Mate v10 (Аналитика) активен на порту " + listener.address().port);
+  console.log("Chef-Mate v11 (Аналитика + CORS) активен на порту " + listener.address().port);
 });
